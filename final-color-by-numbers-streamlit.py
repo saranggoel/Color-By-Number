@@ -3,7 +3,8 @@ import cv2
 from sklearn.cluster import MiniBatchKMeans
 from datetime import datetime
 import streamlit as st
-
+from io import BytesIO
+import os
 
 def main():
     # Use Streamlit's file uploader to allow image selection
@@ -13,6 +14,10 @@ def main():
         # Read the uploaded file into a NumPy array
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+        # Extract the original file name without the extension
+        original_name = os.path.splitext(uploaded_file.name)[0]
+
         heightx, widthx, _ = image.shape
 
         grid_size = st.sidebar.slider("Grid Size", min_value=1, max_value=20, value=1)
@@ -26,13 +31,12 @@ def main():
         color_override = st.sidebar.slider("Color Override", min_value=0, max_value=1, value=0, step=1)
 
         process_images(image, grid_size, brightness_factor, num_colors_override, hue_adjustment, target_width,
-                       target_height, color_override)
+                       target_height, color_override, original_name)
     else:
         st.info("Please upload an image to proceed.")
 
-
 def process_images(image, grid_size, brightness_factor, num_colors_override, hue_adjustment, target_width,
-                   target_height, color_override):
+                   target_height, color_override, original_name):
     target_shape = (target_width, target_height)
     images = []
 
@@ -46,15 +50,33 @@ def process_images(image, grid_size, brightness_factor, num_colors_override, hue
 
     final_image = imagegrid(images, grid_size)
     st.image(final_image, caption="Final Image", use_column_width=True, output_format="JPEG")  # Enable zooming
+    final_image_rgb = cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB)
+    final_image_gray = cv2.cvtColor(final_image, cv2.COLOR_BGR2GRAY)
 
-    if st.button("Save Final Image"):
-        current_datetime = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        final_image_rgb = cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB)
-        cv2.imwrite(f"final_image_{grid_size}x_{num_colors_override}_{current_datetime}.jpg", final_image_rgb)
-        final_image_gray = cv2.cvtColor(final_image, cv2.COLOR_BGR2GRAY)
-        cv2.imwrite(f"final_image_gray_{grid_size}x_{num_colors_override}_{current_datetime}.jpg", final_image_gray)
-        st.success("Final image saved successfully!")
+    # Save option with download buttons
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename_rgb = f"{original_name}_updated_{timestamp}.jpg"
+    output_filename_gray = f"{original_name}_updated_gray_{timestamp}.jpg"
 
+    # Convert RGB image to in-memory buffer for download
+    is_success_rgb, buffer_rgb = cv2.imencode(".jpg", final_image_rgb)
+    if is_success_rgb:
+        st.download_button(
+            label="Download Final RGB Image",
+            data=BytesIO(buffer_rgb),
+            file_name=output_filename_rgb,
+            mime="image/jpeg"
+        )
+
+    # Convert Grayscale image to in-memory buffer for download
+    is_success_gray, buffer_gray = cv2.imencode(".jpg", final_image_gray)
+    if is_success_gray:
+        st.download_button(
+            label="Download Final Grayscale Image",
+            data=BytesIO(buffer_gray),
+            file_name=output_filename_gray,
+            mime="image/jpeg"
+        )
 
 def get_image_grid(image, row, col, grid_size, target_shape):
     height, width, _ = image.shape
@@ -65,7 +87,6 @@ def get_image_grid(image, row, col, grid_size, target_shape):
     cropped_image = image[start_row:end_row, start_col:end_col]
     resized_image = cv2.resize(cropped_image, target_shape)  # Resize the image to a common shape
     return resized_image
-
 
 def imagegrid(images, grid_size):
     image_shape = images[0].shape
@@ -83,7 +104,6 @@ def imagegrid(images, grid_size):
             grid[start_row:end_row, start_col:end_col, :] = images[image_index]
 
     return grid
-
 
 def convert_to_color_by_number(image, num_colors, brightness_factor, hue_adjustment, color_override):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -115,10 +135,8 @@ def convert_to_color_by_number(image, num_colors, brightness_factor, hue_adjustm
     color_by_number = np.squeeze(adjusted_colors_rgb, axis=0)[kmeans.labels_].reshape(image_rgb.shape)
     return color_by_number
 
-
 def write_grid_number(image, row, col, grid_size):
     return image  # Optionally, add grid numbering logic here
-
 
 if __name__ == "__main__":
     main()
